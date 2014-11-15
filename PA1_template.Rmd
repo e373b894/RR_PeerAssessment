@@ -1,0 +1,96 @@
+PA1: reproducible research
+========================================================
+```{r}
+## reproducible research assignment one 
+# housekeeping
+
+library(plyr)
+library(sqldf)
+library(lubridate)
+library(scales)
+library(ggplot2)
+library(chron)
+
+activity <- read.csv("activity.csv", header=TRUE, sep=",", quote= "\"")
+# make "date" a date
+activity[[2]] <- as.Date(activity[[2]])
+activity$interval <- formatC(activity$interval,width=4, format="d", flag="0")
+
+# ignore NAs
+complete <- na.omit(activity)
+
+## What is the mean total number of steps taken per day?
+# sql w/ group by on date for steps
+steps <- sqldf("select date, sum(steps) from complete group by date")
+colnames(steps) <- c("date","sum_steps")
+```
+```{r fig.width=7, fig.height=6}
+# histogram
+hist(steps$sum_steps, main="Histogram of steps")
+```
+```{r}
+# mean & median total nbr of steps each day
+aggregate(activity[,1], list(activity$date), mean, na.action=na.omit)
+aggregate(activity[,1], list(activity$date), median, na.rm=TRUE)
+
+## What is the average daily activity pattern?
+# combine activity with date time
+time1 <- as.POSIXlt(paste(activity$date, activity$interval), "%Y-%m-%d %H%M", tz="")
+
+# create time series
+act3 <- aggregate(activity[,1], list(activity$interval),mean, na.rm=TRUE)
+```
+```{r fig.width=7, fig.height=6}
+# plot it
+with(act3, plot(Group.1,x, type="l", ylab = "Steps", xlab ="interval"))
+```
+```{r}
+# maximum number of steps across 5m intervals
+# sort in descending on average
+act3[order(-act3$x),]
+
+## Impute missing values
+# calc and report total number of rows with missing values
+sapply(activity, function(x) sum(is.na(x)))
+# fill in the missing values with plyr replace missing values with the calculated mean
+impute.mean <- function(x) replace(x, is.na(x), mean(x, na.rm = TRUE))
+act4 <- ddply(activity, ~ interval, transform, steps = impute.mean(steps))
+act5 <- act4[order(act4$date,act4$interval),]
+```
+```{r fig.width=7, fig.height=6}
+# histogram of steps
+hist(act5$steps, main="Histogram of steps (mean for NA)")
+```
+```{r}
+# mean and median per day
+aggregate(act5[,1], list(act5$date), mean, na.action=na.omit)
+aggregate(act5[,1], list(act5$date), median)
+#do the values differ?  yes
+# what is the impact of imputing the data? no longer a normal distribution
+
+## Are there differences in activity patterns between weekdays and weekends?
+
+act4$daytype <- ifelse(weekdays(act4$date) %in% c('Saturday','Sunday'), "WEEKEND", "WEEKDAY")
+#
+##calcl mean for weekday and weekend
+act5 <- aggregate(act4[,1], by=list(act4$interval, act4$daytype),mean, na.rm=TRUE)
+colnames(act5) <- c("interval","day_type", "avg_steps")
+act5$interval <-as.POSIXlt(act5$interval,"%H%M", tz="")
+act5$interval <- times(format(act5$interval, "%H:%M:%S"))
+act5$interval <- as.character(act5$interval)
+act5$Index <- sapply(strsplit(act5$interval,":"),
+function(x) {
+x <- as.numeric(x)
+x[1]+x[2]/60
+}
+)
+```
+```{r fig.width=7, fig.height=6}
+# plot it
+
+sp <- ggplot(act5, aes(x=Index, y=avg_steps)) + geom_line(linetype="solid")
+sp + facet_grid(day_type ~ .)
+```
+```{r}
+dev.off()
+```
